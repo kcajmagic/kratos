@@ -99,6 +99,10 @@ func (m *mockClient) Close() error {
 	return arguments.Error(0)
 }
 
+func (m *mockClient) SetTrailCallback(callback TrailCallback) {
+	m.Called(callback)
+}
+
 type mockConnection struct {
 	mock.Mock
 }

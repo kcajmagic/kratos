@@ -38,7 +38,7 @@ type ClientFactory struct {
 	ClientLogger   log.Logger
 
 	EventHandlers map[string][]EventHandler
-	UseTracer bool
+	UseTracer     bool
 }
 
 // New is used to create a new kratos Client from a ClientFactory
@@ -76,7 +76,7 @@ func (f *ClientFactory) NewWithContext(ctx context.Context) (Client, error) {
 
 		done:          make(chan struct{}),
 		eventHandlers: f.EventHandlers,
-		tracer:          tracer,
+		tracer:        tracer,
 	}
 
 	myPingMissHandler := pingMissHandler{
@@ -154,6 +154,7 @@ type Client interface {
 	OnEvent(event string, handler EventHandler)
 	Send(message interface{}) error
 	Close() error
+	SetTrailCallback(TrailCallback)
 }
 
 type websocketConnection interface {
