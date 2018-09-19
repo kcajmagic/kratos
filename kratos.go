@@ -373,7 +373,6 @@ func createConnection(headerInfo *clientHeader, httpURL string, tracer *Tracer) 
 
 	// creates a new client connection given the URL string
 	connection, resp, err := websocket.DefaultDialer.DialContext(WithTracer(context.Background(), tracer), wsURL, headers)
-
 	if err == websocket.ErrBadHandshake && resp.StatusCode == http.StatusTemporaryRedirect {
 		//Get url to which we are redirected and reconfigure it
 		wsURL = strings.Replace(resp.Header.Get("Location"), "http", "ws", 1)

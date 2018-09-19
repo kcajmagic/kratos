@@ -1,5 +1,5 @@
-hash: 8f69b89ff07bba01945f2d47aeb1bf04da43e8b925dd5f3230fc33081f8cb35a
-updated: 2018-07-16T12:42:10.620768-07:00
+hash: 734ca06982d368425da4a6b24284808542709cbe3243cfc369b25c09c61d2c21
+updated: 2018-09-19T11:13:18.958835-07:00
 imports:
 - name: github.com/beorn7/perks
   version: 3a771d992973f24aa725d07868b467d1ddfceafb
@@ -52,7 +52,7 @@ imports:
 - name: github.com/gorilla/mux
   version: 53c1911da2b537f792e7cafcb446b05ffe33b996
 - name: github.com/gorilla/websocket
-  version: ea4d1f681babbce9545c9c5f3d5194a789c89f5b
+  version: 66b9c49e59c6c48f0ffce28c2d8b8a5678502c6d
 - name: github.com/hashicorp/hcl
   version: ef8a98b0bbce4a65b5aa4c368430a80ddc533168
   subpackages:
