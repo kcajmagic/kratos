@@ -38,6 +38,7 @@ type ClientFactory struct {
 	ClientLogger   log.Logger
 
 	EventHandlers map[string][]EventHandler
+	UseTracer bool
 }
 
 // New is used to create a new kratos Client from a ClientFactory
@@ -53,7 +54,8 @@ func (f *ClientFactory) NewWithContext(ctx context.Context) (Client, error) {
 		manufacturer: f.Manufacturer,
 	}
 
-	newConnection, connectionURL, err := createConnection(inHeader, f.DestinationURL)
+	tracer := &Tracer{}
+	newConnection, connectionURL, err := createConnection(inHeader, f.DestinationURL, tracer)
 
 	if err != nil {
 		return nil, err
@@ -74,6 +76,7 @@ func (f *ClientFactory) NewWithContext(ctx context.Context) (Client, error) {
 
 		done:          make(chan struct{}),
 		eventHandlers: f.EventHandlers,
+		tracer:          tracer,
 	}
 
 	myPingMissHandler := pingMissHandler{
@@ -174,6 +177,12 @@ type HandlerRegistry struct {
 	Handler    ReadHandler
 }
 
+type TrailCallback func(*Trail)
+
+type TrailTrace interface {
+	SetTrailCallback(TrailCallback)
+}
+
 type client struct {
 	deviceID        string
 	userAgent       string
@@ -187,6 +196,9 @@ type client struct {
 	eventHandlers map[string][]EventHandler
 	shutdownOnce  sync.Once
 	done          chan struct{}
+
+	tracer        *Tracer
+	trailCallBack TrailCallback
 }
 
 // used to track everything that we want to know about the client headers
@@ -285,8 +297,15 @@ func (c *client) Close() (err error) {
 
 		// Stops the main control loop
 		close(c.done)
+		if c.trailCallBack != nil {
+			c.trailCallBack(c.tracer.Done())
+		}
 	})
 	return
+}
+
+func (c *client) SetTrailCallback(trailCallback TrailCallback) {
+	c.trailCallBack = trailCallback
 }
 
 func (c *client) read(readChan chan *wrp.Message, errorChan chan error, closeChan chan int) (err error) {
@@ -334,7 +353,7 @@ func (c *client) readPump(readChan chan *wrp.Message, errorChan chan error, clos
 }
 
 // private func used to generate the client that we're looking to produce
-func createConnection(headerInfo *clientHeader, httpURL string) (connection *websocket.Conn, wsURL string, err error) {
+func createConnection(headerInfo *clientHeader, httpURL string, tracer *Tracer) (connection *websocket.Conn, wsURL string, err error) {
 	_, err = device.ParseID(headerInfo.deviceName)
 
 	if err != nil {
@@ -353,7 +372,7 @@ func createConnection(headerInfo *clientHeader, httpURL string) (connection *web
 	wsURL = strings.Replace(httpURL, "http", "ws", 1)
 
 	// creates a new client connection given the URL string
-	connection, resp, err := websocket.DefaultDialer.Dial(wsURL, headers)
+	connection, resp, err := websocket.DefaultDialer.DialContext(WithTracer(context.Background(), tracer), wsURL, headers)
 
 	if err == websocket.ErrBadHandshake && resp.StatusCode == http.StatusTemporaryRedirect {
 		//Get url to which we are redirected and reconfigure it
