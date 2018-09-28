@@ -3,6 +3,9 @@ package kratos
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"net/http"
 	"regexp"
 	"strings"
@@ -14,6 +17,19 @@ import (
 	"github.com/Comcast/webpa-common/wrp"
 	"github.com/go-kit/kit/log"
 	"github.com/gorilla/websocket"
+)
+
+//go:generate stringer -type=Event
+type Event int
+
+const (
+	Error Event = iota + 1
+	Open
+	Ping
+	Pong
+	Close
+	Message
+	Done
 )
 
 const (
@@ -37,8 +53,8 @@ type ClientFactory struct {
 	HandlePingMiss HandlePingMiss
 	ClientLogger   log.Logger
 
-	EventHandlers map[string][]EventHandler
 	UseTracer     bool
+	EventHandlers map[Event][]EventHandler
 }
 
 // New is used to create a new kratos Client from a ClientFactory
@@ -151,7 +167,7 @@ func (pmh *pingMissHandler) checkPing(inTimer *time.Timer, pinged <-chan string,
 // Client is what function calls we expose to the user of kratos
 type Client interface {
 	Hostname() string
-	OnEvent(event string, handler EventHandler)
+	OnEvent(event Event, handler EventHandler)
 	Send(message interface{}) error
 	Close() error
 	SetTrailCallback(TrailCallback)
@@ -194,7 +210,7 @@ type client struct {
 	headerInfo      *clientHeader
 	log.Logger
 
-	eventHandlers map[string][]EventHandler
+	eventHandlers map[Event][]EventHandler
 	shutdownOnce  sync.Once
 	done          chan struct{}
 
@@ -225,32 +241,32 @@ func (c *client) controlLoop(pingChan <-chan string,
 			// - reply with pong (needed when `SetPingHandler` is overwritten)
 			err := c.connection.WriteControl(websocket.PongMessage, []byte(pingData), time.Now().Add(writeWait))
 			if err != nil {
-				c.handleEvent("error", err)
+				c.handleEvent(Error, err)
 			}
-			c.handleEvent("ping")
+			c.handleEvent(Ping)
 		case pongData := <-pongChan:
-			c.handleEvent("pong", pongData)
+			c.handleEvent(Pong, pongData)
 		case wrpData := <-readDataChan:
 			for i := 0; i < len(c.handlers); i++ {
 				if c.handlers[i].keyRegex.MatchString(wrpData.Destination) {
 					c.handlers[i].Handler.HandleMessage(*wrpData)
 				}
 			}
-			c.handleEvent("message", wrpData)
+			c.handleEvent(Message, wrpData)
 		case readErr := <-readErrChan:
-			c.handleEvent("error", readErr)
+			c.handleEvent(Error, readErr)
 		case readClose := <-readCloseChan:
-			c.handleEvent("close", readClose)
+			c.handleEvent(Close, readClose)
 		case <-ctx.Done():
 			err = c.Close()
 		case <-c.done:
-			c.handleEvent("done")
+			c.handleEvent(Done)
 			return err
 		}
 	}
 }
 
-func (c *client) handleEvent(event string, args ...interface{}) {
+func (c *client) handleEvent(event Event, args ...interface{}) {
 	if handlers, ok := c.eventHandlers[event]; ok {
 		for _, handler := range handlers {
 			if err := handler(args...); err != nil {
@@ -260,7 +276,7 @@ func (c *client) handleEvent(event string, args ...interface{}) {
 	}
 }
 
-func (c *client) OnEvent(event string, handler EventHandler) {
+func (c *client) OnEvent(event Event, handler EventHandler) {
 	if handlers, ok := c.eventHandlers[event]; ok {
 		c.eventHandlers[event] = append(handlers, handler)
 	} else {
@@ -282,7 +298,7 @@ func (c *client) Send(message interface{}) (err error) {
 		err = c.connection.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
 	}
 	if err != nil {
-		c.handleEvent("error", err)
+		c.handleEvent(Error, err)
 	}
 	return
 }
@@ -293,7 +309,7 @@ func (c *client) Close() (err error) {
 
 	c.shutdownOnce.Do(func() {
 		// trigger `close` event when the client closes the connection
-		c.handleEvent("close")
+		c.handleEvent(Close)
 		err = c.connection.Close()
 
 		// Stops the main control loop
@@ -378,12 +394,56 @@ func createConnection(headerInfo *clientHeader, httpURL string, tracer *Tracer) 
 		//Get url to which we are redirected and reconfigure it
 		wsURL = strings.Replace(resp.Header.Get("Location"), "http", "ws", 1)
 
-		connection, _, err = websocket.DefaultDialer.Dial(wsURL, headers)
+		connection, resp, err = websocket.DefaultDialer.Dial(wsURL, headers)
 	}
 
 	if err != nil {
+		if resp != nil {
+			err = createError(resp, err)
+		}
 		return nil, "", err
 	}
 
 	return connection, wsURL, nil
+}
+
+type ResponseMessage struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (msg ResponseMessage) String() string {
+	return fmt.Sprintf("%d:%s", msg.Code, msg.Message)
+}
+
+type ResponseError struct {
+	Message  ResponseMessage
+	SubError error
+}
+
+func createError(resp *http.Response, err error) *ResponseError {
+	var msg ResponseMessage
+	defer resp.Body.Close()
+	data, _ := ioutil.ReadAll(resp.Body)
+	json.Unmarshal(data, &msg)
+
+	if msg.Message == "" {
+		switch resp.StatusCode {
+		case device.StatusDeviceDisconnected:
+			msg.Message = "ErrorDeviceBusy"
+		case device.StatusDeviceTimeout:
+			msg.Message = "ErrorTransactionsClosed/ErrorTransactionsAlreadyClosed/ErrorDeviceClosed"
+		default:
+			msg.Message = http.StatusText(msg.Code)
+		}
+	}
+
+	return &ResponseError{
+		Message:  msg,
+		SubError: err,
+	}
+}
+
+func (e *ResponseError) Error() string {
+	return fmt.Sprintf("message: %s with error: %s", e.Message, e.SubError.Error())
 }

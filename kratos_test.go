@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"github.com/Comcast/webpa-common/device"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -84,7 +86,7 @@ func (m *mockClient) Hostname() string {
 	return arguments.String(0)
 }
 
-func (m *mockClient) OnEvent(event string, handler EventHandler) {
+func (m *mockClient) OnEvent(event Event, handler EventHandler) {
 	arguments := m.Called(event, handler)
 	arguments.Error(0)
 }
@@ -164,6 +166,34 @@ func TestMain(m *testing.M) {
 	goodMsg = buf.Bytes()
 
 	os.Exit(m.Run())
+}
+
+func TestErrorCreation(t *testing.T) {
+	assert := assert.New(t)
+	code := device.StatusDeviceDisconnected
+	msg := fmt.Sprintf("Could not process device request: %s", device.ErrorDeviceClosed)
+
+	brokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		fmt.Fprintf(
+			w,
+			`{"code": %d, "message": "%s"}`,
+			code,
+			msg,
+		)
+
+	}))
+	defer brokenServer.Close()
+
+	testClientFactory.DestinationURL = brokenServer.URL
+	_, err := testClientFactory.New()
+
+	testClientFactory.DestinationURL = testServer.URL
+
+	assert.NotNil(err)
+	expected := fmt.Sprintf("message: %s with error: %s", ResponseMessage{code, msg}, websocket.ErrBadHandshake)
+	assert.Equal(expected, err.Error())
 }
 
 func TestNew(t *testing.T) {
@@ -474,7 +504,7 @@ func TestControlLoop(t *testing.T) {
 		headerInfo:    nil,
 		connection:    fakeConn,
 		Logger:        logging.New(nil),
-		eventHandlers: make(map[string][]EventHandler),
+		eventHandlers: make(map[Event][]EventHandler),
 		done:          make(chan struct{}),
 	}
 	testClient.handlers[0].keyRegex, _ = regexp.Compile(testClient.handlers[0].HandlerKey)
@@ -488,7 +518,7 @@ func TestControlLoop(t *testing.T) {
 
 	// test ping
 	count := 0
-	testClient.OnEvent("ping", func(args ...interface{}) error {
+	testClient.OnEvent(Ping, func(args ...interface{}) error {
 		count++
 		return nil
 	})
@@ -502,11 +532,11 @@ func TestControlLoop(t *testing.T) {
 
 	// test pong
 	count = 0
-	testClient.OnEvent("pong", func(args ...interface{}) error {
+	testClient.OnEvent(Pong, func(args ...interface{}) error {
 		count++
 		return nil
 	})
-	testClient.OnEvent("pong", func(args ...interface{}) error {
+	testClient.OnEvent(Pong, func(args ...interface{}) error {
 		count++
 		return nil
 	})
@@ -520,7 +550,7 @@ func TestControlLoop(t *testing.T) {
 
 	// test read
 	count = 0
-	testClient.OnEvent("message", func(args ...interface{}) error {
+	testClient.OnEvent(Message, func(args ...interface{}) error {
 		count++
 		return nil
 	})
@@ -534,7 +564,7 @@ func TestControlLoop(t *testing.T) {
 
 	// test error
 	count = 0
-	testClient.OnEvent("error", func(args ...interface{}) error {
+	testClient.OnEvent(Error, func(args ...interface{}) error {
 		count++
 		return nil
 	})
@@ -549,7 +579,7 @@ func TestControlLoop(t *testing.T) {
 
 	// test error
 	count = 0
-	testClient.OnEvent("close", func(args ...interface{}) error {
+	testClient.OnEvent(Close, func(args ...interface{}) error {
 		count++
 		return nil
 	})
@@ -564,7 +594,7 @@ func TestControlLoop(t *testing.T) {
 
 	// test context
 	count = 0
-	testClient.OnEvent("done", func(args ...interface{}) error {
+	testClient.OnEvent(Done, func(args ...interface{}) error {
 		count++
 		return nil
 	})
