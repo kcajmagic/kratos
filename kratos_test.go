@@ -279,6 +279,7 @@ func TestSend(t *testing.T) {
 	testClient := &client{
 		connection: fakeConn,
 		Logger:     logging.New(nil),
+		handlerLock:   new(sync.RWMutex),
 	}
 
 	err := testClient.Send(myMessage)
@@ -299,6 +300,7 @@ func TestSendBrokenWriteMessage(t *testing.T) {
 		Logger:     logging.New(nil),
 
 		done: make(chan struct{}),
+		handlerLock:   new(sync.RWMutex),
 	}
 
 	err := testClient.Send(nil)
@@ -319,6 +321,7 @@ func TestClose(t *testing.T) {
 		Logger:     logging.New(nil),
 
 		done: make(chan struct{}),
+		handlerLock:   new(sync.RWMutex),
 	}
 
 	err := testClient.Close()
@@ -339,6 +342,7 @@ func TestCloseBroken(t *testing.T) {
 		Logger:     logging.New(nil),
 
 		done: make(chan struct{}),
+		handlerLock:   new(sync.RWMutex),
 	}
 
 	err := testClient.Close()
@@ -377,6 +381,7 @@ func TestRead(t *testing.T) {
 		connection: fakeConn,
 		headerInfo: nil,
 		Logger:     logging.New(nil),
+		handlerLock:   new(sync.RWMutex),
 	}
 
 	testClient.handlers[0].keyRegex, _ = regexp.Compile(testClient.handlers[0].HandlerKey)
@@ -422,6 +427,7 @@ func TestCloseRead(t *testing.T) {
 		connection: fakeConn,
 		headerInfo: nil,
 		Logger:     logging.New(nil),
+		handlerLock:   new(sync.RWMutex),
 	}
 
 	testClient.handlers[0].keyRegex, _ = regexp.Compile(testClient.handlers[0].HandlerKey)
@@ -467,6 +473,7 @@ func TestBadRead(t *testing.T) {
 		connection: fakeConn,
 		headerInfo: nil,
 		Logger:     logging.New(nil),
+		handlerLock:   new(sync.RWMutex),
 	}
 
 	testClient.handlers[0].keyRegex, _ = regexp.Compile(testClient.handlers[0].HandlerKey)
@@ -506,6 +513,7 @@ func TestControlLoop(t *testing.T) {
 		Logger:        logging.New(nil),
 		eventHandlers: make(map[Event][]EventHandler),
 		done:          make(chan struct{}),
+		handlerLock:   new(sync.RWMutex),
 	}
 	testClient.handlers[0].keyRegex, _ = regexp.Compile(testClient.handlers[0].HandlerKey)
 

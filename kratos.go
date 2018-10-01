@@ -92,6 +92,7 @@ func (f *ClientFactory) NewWithContext(ctx context.Context) (Client, error) {
 
 		done:          make(chan struct{}),
 		eventHandlers: f.EventHandlers,
+		handlerLock:   new(sync.RWMutex),
 		tracer:        tracer,
 	}
 
@@ -211,6 +212,7 @@ type client struct {
 	log.Logger
 
 	eventHandlers map[Event][]EventHandler
+	handlerLock   *sync.RWMutex
 	shutdownOnce  sync.Once
 	done          chan struct{}
 
@@ -267,6 +269,8 @@ func (c *client) controlLoop(pingChan <-chan string,
 }
 
 func (c *client) handleEvent(event Event, args ...interface{}) {
+	c.handlerLock.RLock()
+	defer c.handlerLock.RUnlock()
 	if handlers, ok := c.eventHandlers[event]; ok {
 		for _, handler := range handlers {
 			if err := handler(args...); err != nil {
@@ -277,6 +281,8 @@ func (c *client) handleEvent(event Event, args ...interface{}) {
 }
 
 func (c *client) OnEvent(event Event, handler EventHandler) {
+	c.handlerLock.Lock()
+	defer c.handlerLock.Unlock()
 	if handlers, ok := c.eventHandlers[event]; ok {
 		c.eventHandlers[event] = append(handlers, handler)
 	} else {
